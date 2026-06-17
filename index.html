@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Регистрация на событие</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif;
+    background: #11121a; color: #fff; min-height: 100vh; }
+  header { padding: 12px 16px; background: #1b1d29; position: sticky; top: 0; z-index: 5;
+    display: flex; justify-content: space-between; align-items: center; }
+  header .title { font-weight: 600; font-size: 16px; }
+  header .count { font-size: 15px; font-weight: 700; color: #2ec27e;
+    background: #16261e; padding: 5px 12px; border-radius: 20px; }
+  #reader { width: 100%; max-width: 480px; margin: 0 auto; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 16px; }
+  .card { border-radius: 18px; padding: 24px 20px; text-align: center;
+    margin-top: 8px; transition: .15s; }
+  .card.idle { background: #20222e; color: #8a8f9c; }
+  .card.found { background: #1f3a2e; border: 2px solid #2ec27e; }
+  .card.already { background: #3a2a1f; border: 2px solid #e0a93b; }
+  .card.done { background: #1f2f3a; border: 2px solid #3b9de0; }
+  .card.error { background: #3a1f24; border: 2px solid #e04b5c; }
+  .name { font-size: 30px; font-weight: 700; margin: 4px 0; }
+  .classes { font-size: 20px; opacity: .9; }
+  .sub { font-size: 15px; opacity: .75; margin-top: 8px; }
+  button { width: 100%; padding: 18px; font-size: 19px; font-weight: 700;
+    border: none; border-radius: 14px; margin-top: 14px; cursor: pointer; }
+  .confirm { background: #2ec27e; color: #06301d; }
+  .next { background: #3a3d4d; color: #fff; }
+  button:active { transform: scale(.98); }
+  .hidden { display: none; }
+  .search { margin-top: 18px; }
+  .search input { width: 100%; padding: 14px; font-size: 17px; border-radius: 12px;
+    border: 1px solid #33374a; background: #1b1d29; color: #fff; }
+  .results { margin-top: 8px; }
+  .res-item { display: flex; justify-content: space-between; align-items: center;
+    padding: 14px; background: #20222e; border-radius: 12px; margin-top: 8px; cursor: pointer; }
+  .res-item.done { opacity: .5; }
+  .res-item .rn { font-size: 17px; font-weight: 600; }
+  .res-item .rc { font-size: 14px; opacity: .7; }
+  .divider { text-align: center; color: #555a6b; font-size: 13px; margin: 18px 0 4px; }
+</style>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+<header>
+  <span class="title">🩰 Регистрация</span>
+  <span class="count" id="count">— / —</span>
+</header>
+<div id="reader"></div>
+<div class="wrap">
+  <div id="card" class="card idle">Наведите камеру на QR-код участника</div>
+  <button id="confirmBtn" class="confirm hidden">✓ Подтвердить приход</button>
+  <button id="nextBtn" class="next hidden">Сканировать следующего</button>
+
+  <div class="divider">— или найти вручную —</div>
+  <div class="search">
+    <input id="searchInput" type="search" placeholder="Поиск по имени (потерял QR)" autocomplete="off">
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+// ⚠️ ВСТАВЬ СЮДА URL веб-приложения Apps Script (заканчивается на /exec):
+const API_URL = 'ВСТАВЬ_СЮДА_URL_EXEC';
+
+// ── JSONP: обходит CORS, общаясь с Apps Script через <script> ──
+let jsonpId = 0;
+function api(params) {
+  return new Promise(function (resolve, reject) {
+    const cb = 'jsonp_cb_' + (++jsonpId);
+    const timer = setTimeout(function () { cleanup(); reject(new Error('timeout')); }, 12000);
+    function cleanup() { delete window[cb]; if (s.parentNode) s.parentNode.removeChild(s); clearTimeout(timer); }
+    window[cb] = function (data) { cleanup(); resolve(data); };
+    const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+    const s = document.createElement('script');
+    s.src = API_URL + '?' + qs + '&callback=' + cb;
+    s.onerror = function () { cleanup(); reject(new Error('network')); };
+    document.body.appendChild(s);
+  });
+}
+
+const cardEl = document.getElementById('card');
+const confirmBtn = document.getElementById('confirmBtn');
+const nextBtn = document.getElementById('nextBtn');
+const countEl = document.getElementById('count');
+const searchInput = document.getElementById('searchInput');
+const resultsEl = document.getElementById('results');
+let scanner, currentToken = null, busy = false;
+const DEVICE = (function () {
+  let d = localStorage.getItem('device');
+  if (!d) { d = 'dev-' + Math.random().toString(36).slice(2, 7); localStorage.setItem('device', d); }
+  return d;
+})();
+
+function setCard(cls, html) { cardEl.className = 'card ' + cls; cardEl.innerHTML = html; }
+function setStats(s) { if (s) countEl.textContent = s.done + ' / ' + s.total; }
+
+function beep(ok) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = ok ? 880 : 200;
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    o.stop(ctx.currentTime + 0.18);
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(ok ? 80 : [60, 40, 60]);
+}
+
+function extractToken(text) {
+  try { return new URL(text).searchParams.get('t') || text.trim(); }
+  catch (e) { return text.trim(); }
+}
+
+function pauseScan() { try { scanner.pause(true); } catch (e) {} }
+function resumeScan() {
+  currentToken = null; busy = false;
+  confirmBtn.classList.add('hidden'); nextBtn.classList.add('hidden');
+  setCard('idle', 'Наведите камеру на QR-код участника');
+  searchInput.value = ''; resultsEl.innerHTML = '';
+  try { scanner.resume(); } catch (e) {}
+}
+
+function onScan(decodedText) {
+  if (busy) return;
+  busy = true; pauseScan();
+  loadParticipant(extractToken(decodedText));
+}
+
+function loadParticipant(token) {
+  currentToken = token;
+  setCard('idle', '⏳ Проверяю…');
+  api({ action: 'lookup', t: token }).then(showLookup).catch(onFail);
+}
+
+function showLookup(r) {
+  setStats(r && r.stats);
+  if (!r || !r.ok) {
+    beep(false);
+    setCard('error', '❌ Код не найден в списке');
+    nextBtn.classList.remove('hidden');
+    busy = false;
+    return;
+  }
+  const cls = r.classes ? `<div class="classes">Классов: ${r.classes}</div>` : '';
+  if (r.done) {
+    beep(false);
+    setCard('already', `<div class="name">${r.name}</div>${cls}
+      <div class="sub">Уже отмечен${r.checkinTime ? ' в ' + r.checkinTime : ''}</div>`);
+    nextBtn.classList.remove('hidden');
+  } else {
+    beep(true);
+    setCard('found', `<div class="name">${r.name}</div>${cls}
+      <div class="sub">Ещё не отмечен</div>`);
+    confirmBtn.classList.remove('hidden');
+    nextBtn.classList.remove('hidden');
+  }
+  busy = false;
+}
+
+confirmBtn.onclick = function () {
+  if (!currentToken) return;
+  confirmBtn.classList.add('hidden');
+  setCard('idle', '⏳ Отмечаю…');
+  api({ action: 'checkin', t: currentToken, device: DEVICE }).then(function (r) {
+    setStats(r && r.stats);
+    beep(true);
+    const cls = r.classes ? `<div class="classes">Классов: ${r.classes}</div>` : '';
+    setCard('done', `<div class="name">✓ ${r.name}</div>${cls}
+      <div class="sub">Отмечен. Клейте браслет 🎟️</div>`);
+    nextBtn.classList.remove('hidden');
+  }).catch(onFail);
+};
+
+nextBtn.onclick = resumeScan;
+function onFail() { beep(false); setCard('error', '⚠️ Ошибка связи. Попробуйте ещё раз'); nextBtn.classList.remove('hidden'); busy = false; }
+
+let searchTimer = null;
+searchInput.addEventListener('input', function () {
+  clearTimeout(searchTimer);
+  const q = searchInput.value;
+  searchTimer = setTimeout(function () {
+    if (q.trim().length < 2) { resultsEl.innerHTML = ''; return; }
+    api({ action: 'search', q: q }).then(renderResults).catch(function () {});
+  }, 250);
+});
+
+function renderResults(r) {
+  if (!r || !r.results || !r.results.length) { resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '';
+  r.results.forEach(function (p) {
+    const div = document.createElement('div');
+    div.className = 'res-item' + (p.done ? ' done' : '');
+    div.innerHTML = `<div><div class="rn">${p.name}</div>
+      <div class="rc">Классов: ${p.classes || '—'}${p.done ? ' · уже отмечен' : ''}</div></div>
+      <div>${p.done ? '✓' : '→'}</div>`;
+    div.onclick = function () {
+      pauseScan();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      loadParticipant(p.token);
+    };
+    resultsEl.appendChild(div);
+  });
+}
+
+window.addEventListener('load', function () {
+  scanner = new Html5Qrcode('reader');
+  scanner.start({ facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    onScan, function () {})
+    .catch(function (err) {
+      setCard('error', '📷 Нет доступа к камере. Разреши камеру для сайта в настройках браузера.');
+    });
+  api({ action: 'stats' }).then(function (r) { setStats(r && r.stats); }).catch(function () {});
+});
+</script>
+</body>
+</html>
