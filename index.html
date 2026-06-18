@@ -66,9 +66,18 @@
 // ⚠️ ВСТАВЬ СЮДА URL веб-приложения Apps Script (заканчивается на /exec):
 const API_URL = 'https://script.google.com/macros/s/AKfycbxQQK9GsCQbn7_DuX8fo8gQE9WiJTuMuJbfCiE4dPuPzlqq0RdBB9fuF9tRFUFzK76A/exec';
 
+// ── PIN волонтёра (хранится локально, шлётся с каждым запросом) ──
+function getPin() {
+  let pin = localStorage.getItem('staffPin');
+  while (!pin) { pin = (prompt('Введите PIN волонтёра:') || '').trim(); }
+  localStorage.setItem('staffPin', pin);
+  return pin;
+}
+function resetPin() { localStorage.removeItem('staffPin'); }
+
 // ── JSONP: обходит CORS, общаясь с Apps Script через <script> ──
 let jsonpId = 0;
-function api(params) {
+function rawApi(params) {
   return new Promise(function (resolve, reject) {
     const cb = 'jsonp_cb_' + (++jsonpId);
     const timer = setTimeout(function () { cleanup(); reject(new Error('timeout')); }, 12000);
@@ -80,6 +89,16 @@ function api(params) {
     s.onerror = function () { cleanup(); reject(new Error('network')); };
     document.body.appendChild(s);
   });
+}
+// добавляет pin; при неверном PIN — сбрасывает, спрашивает заново и повторяет
+async function api(params) {
+  let r = await rawApi(Object.assign({ pin: getPin() }, params));
+  if (r && r.error === 'bad_pin') {
+    alert('Неверный PIN, попробуйте ещё раз');
+    resetPin();
+    r = await rawApi(Object.assign({ pin: getPin() }, params));
+  }
+  return r;
 }
 
 const cardEl = document.getElementById('card');
