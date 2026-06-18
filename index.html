@@ -156,7 +156,7 @@ function showLookup(r) {
     busy = false;
     return;
   }
-  const cls = r.classes ? `<div class="classes">Классов: ${r.classes}</div>` : '';
+  const cls = r.classes ? `<div class="classes">${r.classes}</div>` : '';
   if (r.done) {
     beep(false);
     setCard('already', `<div class="name">${r.name}</div>${cls}
@@ -181,7 +181,7 @@ confirmBtn.onclick = function () {
     setStats(r && r.stats);
     setDay(r && r.day);
     beep(true);
-    const cls = r.classes ? `<div class="classes">Классов: ${r.classes}</div>` : '';
+    const cls = r.classes ? `<div class="classes">${r.classes}</div>` : '';
     setCard('done', `<div class="name">✓ ${r.name}</div>${cls}
       <div class="sub">Отмечен. Клейте браслет 🎟️</div>`);
     nextBtn.classList.remove('hidden');
@@ -208,7 +208,7 @@ function renderResults(r) {
     const div = document.createElement('div');
     div.className = 'res-item' + (p.done ? ' done' : '');
     div.innerHTML = `<div><div class="rn">${p.name}</div>
-      <div class="rc">Классов: ${p.classes || '—'}${p.done ? ' · уже отмечен' : ''}</div></div>
+      <div class="rc">${p.classes || '—'}${p.done ? ' · уже отмечен' : ''}</div></div>
       <div>${p.done ? '✓' : '→'}</div>`;
     div.onclick = function () {
       pauseScan();
