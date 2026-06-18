@@ -46,7 +46,7 @@
 </head>
 <body>
 <header>
-  <span class="title">🩰 Регистрация</span>
+  <span class="title">🩰 Регистрация · <span id="day">…</span></span>
   <span class="count" id="count">— / —</span>
 </header>
 <div id="reader"></div>
@@ -95,8 +95,10 @@ const DEVICE = (function () {
   return d;
 })();
 
+const dayEl = document.getElementById('day');
 function setCard(cls, html) { cardEl.className = 'card ' + cls; cardEl.innerHTML = html; }
 function setStats(s) { if (s) countEl.textContent = s.done + ' / ' + s.total; }
+function setDay(d) { if (d) dayEl.textContent = d; }
 
 function beep(ok) {
   try {
@@ -140,9 +142,16 @@ function loadParticipant(token) {
 
 function showLookup(r) {
   setStats(r && r.stats);
+  setDay(r && r.day);
   if (!r || !r.ok) {
     beep(false);
-    setCard('error', '❌ Код не найден в списке');
+    if (r && r.error === 'no_day') {
+      setCard('error', `📅 Нет листа на сегодня (${r.day}).<div class="sub">Создай вкладку с этой датой в таблице.</div>`);
+    } else if (r && r.error === 'not_today') {
+      setCard('error', `🚫 Не записан на сегодня<div class="sub">Этого человека нет в списке на ${r.day}</div>`);
+    } else {
+      setCard('error', '❌ Код не найден в списке');
+    }
     nextBtn.classList.remove('hidden');
     busy = false;
     return;
@@ -168,7 +177,9 @@ confirmBtn.onclick = function () {
   confirmBtn.classList.add('hidden');
   setCard('idle', '⏳ Отмечаю…');
   api({ action: 'checkin', t: currentToken, device: DEVICE }).then(function (r) {
+    if (!r || !r.ok) { showLookup(r); return; }
     setStats(r && r.stats);
+    setDay(r && r.day);
     beep(true);
     const cls = r.classes ? `<div class="classes">Классов: ${r.classes}</div>` : '';
     setCard('done', `<div class="name">✓ ${r.name}</div>${cls}
@@ -216,7 +227,12 @@ window.addEventListener('load', function () {
     .catch(function (err) {
       setCard('error', '📷 Нет доступа к камере. Разреши камеру для сайта в настройках браузера.');
     });
-  api({ action: 'stats' }).then(function (r) { setStats(r && r.stats); }).catch(function () {});
+  api({ action: 'stats' }).then(function (r) {
+    setDay(r && r.day);
+    if (r && r.error === 'no_day') {
+      setCard('error', `📅 Нет листа на сегодня (${r.day}).<div class="sub">Создай вкладку с этой датой.</div>`);
+    } else { setStats(r && r.stats); }
+  }).catch(function () {});
 });
 </script>
 </body>
